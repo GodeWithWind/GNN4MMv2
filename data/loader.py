@@ -1,5 +1,5 @@
 from torch_geometric.data import DataLoader
-from data.dataset import HomogeneousRealDataset
+from data.dataset import HomogeneousDataset
 
 dataset_dict = {'GATReal': HomogeneousRealDataset}
 

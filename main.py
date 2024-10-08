@@ -5,6 +5,7 @@ from data.loader import get_train_loader, get_test_loader, get_val_loader
 from solver.activate_solver import Solver
 import warnings
 warnings.filterwarnings("ignore")
+import nni
 
 
 def main(args):

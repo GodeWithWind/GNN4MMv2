@@ -2,14 +2,17 @@ import torch
 from complexPyTorch.complexLayers import NaiveComplexBatchNorm1d
 from munch import Munch
 from torch_geometric.data import DataLoader
+from torch_geometric.nn import GraphNorm
+from torch_geometric.nn.norm import BatchNorm
+import torch_geometric.nn.norm.instance_norm
 from models.layers import ComplexLinear, ELU, EdgeGATConv, MM_ACT, HGTConv, HeteroDictComLinear, MM_Dict_ACT, DictELU, \
     DictComBN, BipGATConv, MM_ACTv2, GATv2Conv, MM_ACTv3
 from torch import nn
-from torch.nn import Linear, BatchNorm1d, SELU
+from torch.nn import Linear, BatchNorm1d, SELU, LeakyReLU, RReLU, PReLU
 from torch_geometric.utils import to_undirected
+from torch_geometric.nn.conv import GATv2Conv as GATConv
 
 from solver.utils import unbatch_mm
-
 
 
 # 直接学习beam
@@ -230,20 +233,171 @@ class HetGAT(nn.Module):
         return self.act(x_dict)
 
 
+class CNN_v3(nn.Module):
+    def __init__(self, args):
+        super(CNN_v3, self).__init__()
+        # 用户数
+        self.K = args.user_num
+        # 天线数
+        self.Nt = args.antenna_num
+
+        self.batch_size = args.batch_size
+
+        self.RF_dims = 2 * self.K * self.Nt
+        self.BB_dims = 2 * self.K * self.K
+        self.P_dims = self.K
+        # Output_size = ((Input_size−Kernel_size+2×Padding)/Stride) + 1
+
+        self.conv1 = nn.Sequential(  # input shape ( 3, K, Nt)
+            nn.Conv2d(
+                in_channels=3,
+                out_channels=16,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+            ),  # output shape (16, K, Nt)
+            nn.ReLU(),  # activation
+            nn.MaxPool2d(kernel_size=3, stride=(2, 1)),  # choose max value in 2x2 area, output shape (16, K/2, Nt/2)
+            nn.BatchNorm2d(16)
+        )
+        self.conv2 = nn.Sequential(  # input shape (16, K/2, Nt/2)
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1),
+            # output shape (32, K/2, Nt/2)
+            nn.ReLU(),  # activation
+            nn.MaxPool2d(kernel_size=3, stride=(2, 1)),  # output shape (32, K/4, Nt/4)
+            nn.BatchNorm2d(32)
+        )
+        self.conv3 = nn.Sequential(  # input shape (32, K/4, Nt/4)
+            nn.Conv2d(32, 64, 3, 1, 1),  # output shape (64, K/4, Nt/4)
+            nn.ReLU(),  # activation
+            nn.MaxPool2d(kernel_size=3, stride=(2, 1)),  # output shape (64, K/8, Nt/8) (64,1,2)
+            nn.BatchNorm2d(64)
+        )
+        fc1_hidden1 = 64 * 2
+        fc1_hidden2, fc1_hidden3 = 512, 256
+        self.fc1 = nn.Sequential(
+            nn.Linear(fc1_hidden1, fc1_hidden2),
+            nn.ReLU(),
+            nn.BatchNorm1d(fc1_hidden2),
+            nn.Linear(fc1_hidden2, fc1_hidden3),
+            nn.ReLU(),
+            nn.BatchNorm1d(fc1_hidden3)
+        )
+
+        self.RFOut = nn.Linear(fc1_hidden3, self.RF_dims)
+        self.BBOut = nn.Linear(fc1_hidden3, self.BB_dims)
+        self.Pout = nn.Linear(fc1_hidden3, self.P_dims)
+
+    def forward(self, x_csi):
+        x = self.conv1(x_csi)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = x.view(x.size(0), -1)  # flatten the output of conv2 to (batch_size, 64 * 2)
+        x = self.fc1(x)
+
+        RF = self.RFOut(x)  # output RF
+        RF = RF.reshape(-1, self.K, 2 * self.Nt)
+        RF = torch.complex(RF[:, :self.Nt], RF[:, :2 * self.Nt])
+
+        BB = self.BBOut(x)  # output digital precoder
+        BB = BB.reshape(-1, self.K, 2 * self.K)
+        BB = torch.complex(BB[:, :self.K], BB[:, :2 * self.K])
+
+        P = self.Pout(x).reshape(self.batch_size, self.user_num, 1)  # return feature_other and phase
+        return RF, BB, P
+
+
+class GAT(nn.Module):
+    def __init__(self, args):
+        super(GAT, self).__init__()
+        self.gat1 = GATConv(in_channels=args.antenna_num * 2, out_channels=32, heads=40, negative_slope=0,
+                            residual=True, edge_dim=args.edge_dim)
+        self.gbn1 = GraphNorm(32 * 40)
+
+        self.gat2 = GATConv(32 * 40, 64, 40, negative_slope=0, residual=True, edge_dim=args.edge_dim)
+        self.gbn2 = GraphNorm(64 * 40)
+
+        self.gat3 = GATConv(64 * 40, 128, 40, negative_slope=0, residual=True, edge_dim=args.edge_dim)
+        self.gbn3 = GraphNorm(128 * 40)
+
+        self.relu = ReLU()
+
+        self.lin1 = Linear(128 * 40, 1024)
+        self.bn1 = GraphNorm(1024)
+
+        self.lin2 = Linear(1024, 512)
+        self.bn2 = GraphNorm(512)
+
+        self.RFOut = Linear(512, args.antenna_num * 2)
+        # 这里就
+        self.BBOut = Linear(1030, 2)
+
+        self.POut = Linear(512, 1)
+        self.args = args
+        # 初始化激活函数层
+        self.K = args.user_num
+        self.batch_size = args.batch_size
+        self.Nt = args.antenna_num
+        self.p_max = args.p_max
+        self.act = MM_ACTv3(args)
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        edge_attr = data.edge_attr
+        edge_attr = edge_attr.to(torch.float)
+        x = x.to(torch.float)
+
+        x = self.gat1(x, edge_index, edge_attr)
+        x = self.gbn1(x)
+        x = self.relu(x)
+
+        x = self.gat2(x, edge_index, edge_attr)
+        x = self.gbn2(x)
+        x = self.relu(x)
+
+        x = self.gat3(x, edge_index, edge_attr)
+        x = self.gbn3(x)
+        x = self.relu(x)
+
+        x = self.lin1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+
+        x = self.lin2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+
+        RF = self.RFOut(x)
+        # 这里对RF 进行归一化操作
+        RF = torch.complex(RF[:, : self.Nt], RF[:, self.Nt:])
+        RF = RF.reshape(-1, self.K, self.Nt)
+
+        # 首先根据有向边获得特征
+        x_edge = torch.cat((x[edge_index[0]], edge_attr, x[edge_index[1]]), dim=1)
+        BB = self.BBOut(x_edge)
+        BB = torch.complex(BB[:, 0], BB[:, 1]).reshape(-1, self.K, self.K)
+
+        # 强制用完
+        P = self.POut(x).reshape(self.batch_size, self.K, 1)
+
+        return self.act(RF, BB, P)
+
+
 if __name__ == '__main__':
-    train_dataset = BipartiteDataset('../dataset/8u_16n_40w/val/')
-    loaders = DataLoader(dataset=train_dataset, batch_size=6, shuffle=True, num_workers=1)
-    data = train_dataset[0]
-    args = {'user_num': 8, 'antenna_num': 16, 'p_max': 1}
-    args = Munch(args)
-    model = BipGAT(data.metadata(), args)
-    for batch in loaders:
-        print(batch.metadata())
-        x, y, z = model(batch)
-        print(x.shape)
-        print(y.shape)
-        print(z.shape)
-        break
+    pass
+    # train_dataset = BipartiteDataset('../dataset/8u_16n_40w/val/')
+    # loaders = DataLoader(dataset=train_dataset, batch_size=6, shuffle=True, num_workers=1)
+    # data = train_dataset[0]
+    # args = {'user_num': 8, 'antenna_num': 16, 'p_max': 1}
+    # args = Munch(args)
+    # model = BipGAT(data.metadata(), args)
+    # for batch in loaders:
+    #     print(batch.metadata())
+    #     x, y, z = model(batch)
+    #     print(x.shape)
+    #     print(y.shape)
+    #     print(z.shape)
+    #     break
 
 # print(data.metadata())
 # model = BipGAT(data.metadata())

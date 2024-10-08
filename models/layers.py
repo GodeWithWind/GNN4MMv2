@@ -10,7 +10,7 @@ from torch.nn.init import _calculate_correct_fan, _calculate_fan_in_and_fan_out
 from torch_geometric.nn import MessagePassing, HeteroDictLinear, HeteroLinear
 from torch_geometric.nn.module_dict import ModuleDict
 from torch_geometric.nn.parameter_dict import ParameterDict
-from torch_geometric.typing import Metadata, NodeType, EdgeType, Adj, PairTensor, OptTensor
+from torch_geometric.typing import Metadata, NodeType, EdgeType, Adj, PairTensor, OptTensor,Dict
 from torch_geometric.utils import add_self_loops, remove_self_loops, softmax
 from torch_geometric.nn.inits import glorot, zeros
 from models.myFunctional import apply_complex, complex_leaky_relu, complex_dropout, complex_relu
