@@ -39,8 +39,7 @@ def process_mat_data(base_path, save_path='./', ):
     :return:
     """
     # 加载原始数据
-    # print(os.path.join(base_path, "/8u_16n_H_450_650.mat"))
-    dataset = scio.loadmat(os.path.join(base_path, "8u_16n_H_450_650.mat"))
+    dataset = scio.loadmat(os.path.join(base_path, "BS5.mat"))
 
     train_number = 80000
     val_number = 10000
@@ -71,13 +70,35 @@ def process_mat_data(base_path, save_path='./', ):
     #              {'H': val_H, 'RF': val_RF, 'BB': val_BB, 'SR': val_SR})
     # scio.savemat(os.path.join(os.getcwd(), save_path, "test_8u_16n/raw", "data.mat"),
     #              {'H': test_H, 'RF': test_RF, 'BB': test_BB, 'SR': test_SR})
+    
+    scio.savemat(os.path.join(os.getcwd(), save_path, "train_bs5/raw", "data.mat"),
+                {'H': train_H})
+    scio.savemat(os.path.join(os.getcwd(), save_path, "val_bs5/raw", "data.mat"),
+                {'H': val_H})
+    scio.savemat(os.path.join(os.getcwd(), save_path, "test_bs5/raw", "data.mat"),
+                {'H': test_H})
 
-    scio.savemat(os.path.join(os.getcwd(), save_path, "train/raw", "data.mat"),
-                 {'H': train_H})
-    scio.savemat(os.path.join(os.getcwd(), save_path, "val/raw", "data.mat"),
-                 {'H': val_H})
-    scio.savemat(os.path.join(os.getcwd(), save_path, "test_8u_16n/raw", "data.mat"),
-                 {'H': test_H})
+
+def process_mat_data_test(base_path, save_path='./', ):
+    """
+
+    :param base_path: 原始路径
+    :param save_path: 保存的路径
+    :return:
+    """
+    # 加载原始数据
+    dataset = scio.loadmat(os.path.join(base_path, "8u_16n_3p.mat"))
+
+    # 进行数据集的划分
+    test_H = dataset["H_gather"]
+    test_RF = dataset["RF_gather"]
+    test_BB = dataset["BB_gather"]
+    test_SR = dataset["SR_gather"]
+    print(test_H.shape)
+    print("测试集{}".format( len(test_H)))
+    # 存储新数据
+    scio.savemat(os.path.join(os.getcwd(), save_path, "test_8u_16n_3p/raw", "data.mat"),
+                 {'H': test_H, 'RF': test_RF, 'BB': test_BB, 'SR': test_SR})
 
 
 def getChannel(base_path, save_path='./', ):
@@ -94,12 +115,12 @@ def getChannel(base_path, save_path='./', ):
 
     for i in range(len(dataset)):
         # 获得单个样本
-        data = dataset[i]
+        data = dataset[i].item()
         # 获得信道
         channel = np.einsum('knp -> kn', data["user"]["channel"].squeeze())
         H_gather.append(channel)
-    # 这里要进行打乱
-    # random.shuffle(H_gather)
+    # 这里要进行打算一下
+    random.shuffle(H_gather)
     H_gather = np.stack(H_gather)
     print(H_gather.shape)
     # 这里存储为
@@ -136,24 +157,8 @@ def PZF(base_path):
 
 
 if __name__ == '__main__':
-    save_path = "..\dataset\8u_16n"
-    base_path = '..\dataset\\raw_data'
-    process_mat_data(base_path=base_path, save_path=save_path)
+    save_path = "../dataset/BS_8u_16n_real/"
+    base_path = '../dataset/raw_data/'
+    # getChannel(base_path, save_path)
     # PZF(base_path)
-    # process_mat_data(base_path, save_path)
-    # 读取信道值
-    # H = scio.loadmat(os.path.join(base_path, "8u_16n_test.mat"))
-    # print(H.keys())
-    # h = H["H_gather"]
-    # print(h.shape)
-    # # 获得前两个信道
-    # h1 = torch.from_numpy(h[0])
-    # h2 = torch.from_numpy(h[1])
-    # print(torch.norm(h1))
-    # dataset = np.load(os.path.join(base_path, "8u_16n_test.npy"), allow_pickle=True)
-    # for i in range(len(dataset)):
-    #     # 获得单个样本
-    #     data = dataset[i].item()
-    #     # print(data.keys())
-    #     # print(data["user"].keys())
-    #     print(data["user"]['userID'])
+    process_mat_data(base_path, save_path)

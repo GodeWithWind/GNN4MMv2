@@ -74,7 +74,7 @@ class Solver:
             val_loader.dataset.epoch_now = epoch
             self.net.train()
 
-            train_loss,train_sum,train_min,train_ee = train_one_epoch(net,
+            train_loss,train_sum,train_min,train_ee,train_sta = train_one_epoch(net,
                                          optimizer,
                                          train_loader,
                                          epoch,
@@ -82,9 +82,10 @@ class Solver:
                                          loss)
             # 模型评估
             self.net.eval()
-            val_loss,val_sum,val_min,val_ee = evaluate(net,
+            val_loss,val_sum,val_min,val_ee,target_sum_rate,val_sta = evaluate(net,
                                 val_loader,
-                                epoch, args,
+                                epoch,
+                                args,
                                 loss)
 
             # 学习率下降
@@ -104,16 +105,16 @@ class Solver:
             #         "VAL_INFO:epoch {},loss: {:.4f}".format(
             #             epoch, val_loss))
             # 输出的太多了，所以分两次输出
-            print("TRAIN_INFO:epoch {},loss: {:.4f},sum: {:.4f},min: {:.4f},ee: {:.4f}"
-                  .format(epoch, train_loss,train_sum,train_min,train_ee))
-            print("VAL_INFO:epoch {},loss: {:.4f},sum: {:.4f},min: {:.4f},ee: {:.4f}"
-                  .format(epoch, val_loss,val_sum,val_min,val_ee))
+            print("TRAIN_INFO:epoch {},loss: {:.4f},sum: {:.4f},min: {:.4f},ee: {:.4f},power_sta: {:.4f}"
+                  .format(epoch, train_loss,train_sum,train_min,train_ee,train_sta))
+            print("VAL_INFO:epoch {},loss: {:.4f},sum: {:.4f},min: {:.4f},ee: {:.4f},power_sta: {:.4f},target_sum: {:.4f}"
+                  .format(epoch, val_loss,val_sum,val_min,val_ee,val_sta,target_sum_rate))
             if self.early_stopping.early_stop:
                 break
 
-            if optimizer.param_groups[0]['lr'] < 5e-6:
-                print("早停")
-                break
+            # if optimizer.param_groups[0]['lr'] < 5e-6:
+            #     print("早停")
+            #     break
 
     def test(self, loader):
         if self.args.model_path is None:

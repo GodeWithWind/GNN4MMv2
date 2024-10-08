@@ -6,6 +6,7 @@ from solver.activate_solver import Solver
 import warnings
 warnings.filterwarnings("ignore")
 import nni
+import os
 
 
 def main(args):
@@ -25,7 +26,6 @@ def main(args):
 
 
 if __name__ == '__main__':
-    # 测试修改
     cfg = load_cfg()
     setup_cfg(cfg)
     if cfg.mode == 'train':

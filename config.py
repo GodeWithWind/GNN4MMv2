@@ -60,7 +60,10 @@ def parse_args():
     parser.add_argument('--mode', type=str, default='nni', choices=['train', 'test', 'nni'])
 
     parser.add_argument('--model', type=str, default='GAT',
-                        choices=['GAT', 'BipGAT', 'HetGAT'])
+                        choices=['GATReal','CNN', 'HetGATV2','MLP','GCN','GAT','GATV3'])
+    
+    parser.add_argument('--loss_type', type=str, default='sum',
+                    choices=['sum', 'ee', 'min','hybrid'])
     # 边特征维度
     parser.add_argument('--edge_dim', type=int, default=0)
 
